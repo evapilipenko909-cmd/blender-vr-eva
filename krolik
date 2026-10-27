@@ -1,0 +1,126 @@
+import bpy
+import math
+
+
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete()
+
+
+def create_material(name, color, roughness=0.5):
+    mat = bpy.data.materials.new(name=name)
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    
+    bsdf = None
+    for node in nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            bsdf = node
+            break
+    
+    if bsdf is None:
+        raise ValueError("Principled BSDF node not found")
+    
+    bsdf.inputs['Base Color'].default_value = color
+    bsdf.inputs['Roughness'].default_value = roughness
+    return mat
+
+mat_white = create_material("WhiteFur", (1.0, 1.0, 1.0, 1.0), roughness=0.7)
+mat_black = create_material("Black", (0.02, 0.02, 0.02, 1.0), roughness=0.2)
+mat_pink = create_material("PinkNose", (1.0, 0.6, 0.7, 1.0), roughness=0.4)
+mat_ground = create_material("Ground", (0.75, 0.8, 0.85, 1.0), roughness=0.9)
+
+
+def add_rabbit_part(name, location, scale, material, rotation=(0,0,0)):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1, location=location, scale=scale)
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.rotation_euler = rotation
+    obj.data.materials.append(material)
+    bpy.ops.object.shade_smooth()
+    return obj
+
+
+add_rabbit_part("Body", (0, 0, 1), (1.1, 1.1, 1.4), mat_white)
+add_rabbit_part("Head", (0, 0, 2.7), (1.2, 1.2, 1.1), mat_white)
+
+add_rabbit_part("Ear_L", (0.45, 0, 4.0), (0.18, 0.12, 0.7), mat_white, rotation=(0.1, 0.2, 0))
+add_rabbit_part("Ear_R", (-0.45, 0, 4.0), (0.18, 0.12, 0.7), mat_white, rotation=(0.1, -0.2, 0))
+
+add_rabbit_part("Tail", (0, -1.2, 0.9), (0.45, 0.45, 0.45), mat_white)
+
+add_rabbit_part("Foot_L", (0.55, 0.6, 0.2), (0.35, 0.55, 0.25), mat_white)
+add_rabbit_part("Foot_R", (-0.55, 0.6, 0.2), (0.35, 0.55, 0.25), mat_white)
+
+
+add_rabbit_part("Eye_L", (0.5, 0.95, 2.9), (0.14, 0.1, 0.18), mat_black)
+add_rabbit_part("Eye_R", (-0.5, 0.95, 2.9), (0.14, 0.1, 0.18), mat_black)
+add_rabbit_part("Nose", (0, 1.15, 2.5), (0.12, 0.12, 0.1), mat_pink)
+
+
+bpy.ops.mesh.primitive_plane_add(size=20, location=(0, 0, 0))
+ground = bpy.context.active_object
+ground.name = "Ground"
+ground.data.materials.append(mat_ground)
+
+world = bpy.context.scene.world
+if world is None:
+    world = bpy.data.worlds.new("World")
+    bpy.context.scene.world = world
+world.use_nodes = True
+bg = world.node_tree.nodes["Background"]
+bg.inputs['Color'].default_value = (0.6, 0.7, 0.8, 1.0)
+bg.inputs['Strength'].default_value = 0.5
+
+
+bpy.ops.object.light_add(type='AREA', radius=3, location=(3, 5, 6))
+light = bpy.context.active_object
+light.name = "KeyLight"
+light.data.energy = 500
+light.data.size = 5
+direction = bpy.data.objects["Body"].location - light.location
+rot_quat = direction.to_track_quat('-Z', 'Y')
+light.rotation_euler = rot_quat.to_euler()
+
+
+bpy.ops.object.light_add(type='AREA', radius=2, location=(-4, 4, 4))
+fill_light = bpy.context.active_object
+fill_light.name = "FillLight"
+fill_light.data.energy = 200
+fill_light.data.size = 4
+direction = bpy.data.objects["Body"].location - fill_light.location
+rot_quat = direction.to_track_quat('-Z', 'Y')
+fill_light.rotation_euler = rot_quat.to_euler()
+
+
+
+target = (0, 0, 2.2)  
+
+bpy.ops.object.camera_add(location=(0, 10, 3.5))
+cam = bpy.context.active_object
+cam.name = "Camera"
+cam.data.lens = 50  
+
+
+direction = bpy.data.objects["Body"].location - cam.location
+
+aim_point = (target[0], target[1], target[2])
+direction = bpy.data.objects["Body"].location.copy()
+direction.z = 2.5  
+direction = direction - cam.location
+rot_quat = direction.to_track_quat('-Z', 'Y')
+cam.rotation_euler = rot_quat.to_euler()
+
+bpy.context.scene.camera = cam
+
+
+scene = bpy.context.scene
+scene.render.engine = 'CYCLES'
+scene.cycles.device = 'CPU'
+scene.cycles.samples = 64
+scene.render.resolution_x = 1920
+scene.render.resolution_y = 1080
+scene.render.filepath = "//white_rabbit_render.png"
+
+print("Начинаю рендер белого зайца (камера смотрит в лицо)...")
+bpy.ops.render.render(write_still=True)
+print("Рендер завершен!")
